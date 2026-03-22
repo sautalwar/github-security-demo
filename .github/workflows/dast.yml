@@ -65,23 +65,21 @@ jobs:
         run: chmod 777 ${{ github.workspace }}
 
       - name: Run OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.14.0
         with:
           target: 'http://localhost:3000'
           rules_file_name: '.github/zap-rules.tsv'
           cmd_options: '-a -j'
-          allow_issue_writing: true
+          allow_issue_writing: false
           fail_action: false
-          artifact_name: 'zap-baseline-report'
 
       - name: Run OWASP ZAP API Scan
-        if: inputs.scan_type == 'api' || inputs.scan_type == ''
-        uses: zaproxy/action-api-scan@v0.7.0
+        if: inputs.scan_type == 'api'
+        uses: zaproxy/action-api-scan@v0.9.0
         with:
           target: 'http://localhost:3000/api-docs'
           format: openapi
-          allow_issue_writing: true
-          artifact_name: 'zap-api-report'
+          allow_issue_writing: false
 
       - name: Upload DAST results to Security tab
         if: always()
