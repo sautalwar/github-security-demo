@@ -1,0 +1,60 @@
+# OWASP ZAP Scan Rules Configuration
+# Format: rule_id	action	description
+# Actions: WARN = report but pass, FAIL = break the build, IGNORE = suppress
+#
+# Reference: https://www.zaproxy.org/docs/alerts/
+# Used by: .github/workflows/dast.yml
+#
+10010	WARN	Cookie Without Secure Flag
+10011	WARN	Cookie Without HttpOnly Flag
+10015	IGNORE	Incomplete or No Cache-control Header Set
+10017	WARN	Cross-Domain JavaScript Source File Inclusion
+10020	FAIL	X-Frame-Options Header Not Set
+10021	FAIL	X-Content-Type-Options Header Missing
+10023	WARN	Information Disclosure - Debug Error Messages
+10024	WARN	Information Disclosure - Sensitive Information in URL
+10025	WARN	Information Disclosure - Sensitive Information in HTTP Referrer Header
+10027	WARN	Information Disclosure - Suspicious Comments
+10035	FAIL	Strict-Transport-Security Header Not Set
+10036	WARN	Server Leaks Version Information via Server HTTP Response Header
+10037	WARN	Server Leaks Information via X-Powered-By HTTP Response Header
+10038	WARN	Content Security Policy (CSP) Header Not Set
+10049	WARN	Storable and Cacheable Content
+10054	WARN	Cookie Without SameSite Attribute
+10055	WARN	CSP Wildcard Directive
+10096	WARN	Timestamp Disclosure - Unix
+10098	WARN	Cross-Domain Misconfiguration
+10105	WARN	Weak Authentication Method
+10202	WARN	Absence of Anti-CSRF Tokens
+20012	FAIL	Anti-CSRF Tokens Check
+30001	WARN	Buffer Overflow
+30002	WARN	Format String Error
+40003	FAIL	CRLF Injection
+40008	FAIL	Parameter Tampering
+40009	FAIL	Server Side Include
+40012	FAIL	Cross Site Scripting (Reflected)
+40013	FAIL	Session ID in URL Rewrite
+40014	FAIL	SQL Injection
+40016	FAIL	Cross Site Scripting (Persistent)
+40017	FAIL	Cross Site Scripting (DOM Based)
+40018	FAIL	SQL Injection - Hypersonic SQL
+40019	FAIL	SQL Injection - MySQL
+40020	FAIL	SQL Injection - Oracle
+40021	FAIL	SQL Injection - PostgreSQL
+40022	FAIL	SQL Injection - SQLite
+40024	FAIL	SQL Injection - MsSQL
+40026	FAIL	Cross Site Scripting (DOM Based) - variant 2
+40032	FAIL	.htaccess Information Leak
+40034	FAIL	.env Information Leak
+40035	FAIL	Hidden File Finder
+50000	FAIL	Script Active Scan Rules
+90001	WARN	Insecure JSF ViewState
+90011	WARN	Charset Mismatch
+90019	FAIL	Server Side Code Injection
+90020	FAIL	Remote OS Command Injection
+90021	FAIL	XPath Injection
+90023	WARN	XML External Entity Attack
+90024	WARN	Generic Padding Oracle
+90025	FAIL	Expression Language Injection
+90028	WARN	Insecure HTTP Method
+90033	WARN	Loosely Scoped Cookie

@@ -1,0 +1,121 @@
+# ============================================================
+# DAST - Dynamic Application Security Testing with OWASP ZAP
+# GitLab equivalent: Built-in DAST analyzer
+# ============================================================
+# VALUE: Scans the RUNNING application for vulnerabilities like
+# SQL injection, XSS, auth bypass — the same way an attacker would.
+
+name: "🔍 DAST - Dynamic Application Security Testing"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'ZAP scan type'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - full
+          - api
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  dast-scan:
+    name: OWASP ZAP DAST Scan
+    runs-on: ubuntu-latest
+    
+    services:
+      app:
+        image: node:18-alpine
+        ports:
+          - 3000:3000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start application in background
+        run: |
+          npm start &
+          sleep 5
+          curl -f http://localhost:3000/health || exit 1
+        env:
+          JWT_SECRET: test-secret-for-ci
+          NODE_ENV: test
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.github/zap-rules.tsv'
+          cmd_options: '-a -j'
+          allow_issue_writing: true
+          fail_action: true
+          artifact_name: 'zap-baseline-report'
+
+      - name: Run OWASP ZAP API Scan
+        if: inputs.scan_type == 'api' || inputs.scan_type == ''
+        uses: zaproxy/action-api-scan@v0.7.0
+        with:
+          target: 'http://localhost:3000/api-docs'
+          format: openapi
+          allow_issue_writing: true
+          artifact_name: 'zap-api-report'
+
+      - name: Upload DAST results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'report_json.json'
+          category: 'dast-owasp-zap'
+        continue-on-error: true
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-reports
+          path: |
+            report_html.html
+            report_json.json
+            report_md.md
+          retention-days: 30
+
+      - name: Comment PR with DAST results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '## 🔍 DAST Scan Results\n\n';
+            try {
+              const md = fs.readFileSync('report_md.md', 'utf8');
+              report += md.substring(0, 3000);
+            } catch {
+              report += 'Scan completed. See artifacts for full report.';
+            }
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: report
+            });

@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "description": "Open source license compliance policy",
+  
+  "allowed": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "CC-BY-3.0",
+    "CC-BY-4.0",
+    "Python-2.0",
+    "PSF-2.0",
+    "BlueOak-1.0.0"
+  ],
+
+  "denied": [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-1.0",
+    "AGPL-3.0",
+    "SSPL-1.0",
+    "EUPL-1.1",
+    "OSL-3.0",
+    "CPAL-1.0",
+    "CPL-1.0",
+    "Sleepycat"
+  ],
+
+  "requires_review": [
+    "LGPL-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "MPL-2.0",
+    "EPL-1.0",
+    "EPL-2.0",
+    "CDDL-1.0",
+    "Artistic-2.0"
+  ],
+
+  "notes": {
+    "GPL": "Copyleft license - requires derivative works to be open source",
+    "AGPL": "Network copyleft - even SaaS usage triggers open source requirements",
+    "LGPL": "Weak copyleft - review to ensure dynamic linking only",
+    "MPL": "File-level copyleft - review scope of modifications"
+  }
+}

@@ -1,0 +1,131 @@
+# ============================================================
+# License Compliance Scanning
+# GitLab equivalent: Built-in License Compliance analyzer
+# ============================================================
+# VALUE: Automatically enforces your organization's open-source
+# license policies. Blocks PRs that introduce GPL, AGPL, or other
+# restricted licenses into your codebase.
+
+name: "📜 License Compliance"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package*.json'
+      - '.github/license-policy.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  license-scan:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install license checker
+        run: npm install -g license-checker
+
+      - name: Generate license report (JSON)
+        run: |
+          license-checker --json --out license-report.json --production
+          license-checker --csv --out license-report.csv --production
+          license-checker --summary --out license-summary.txt --production
+
+      - name: Check for prohibited licenses
+        id: license-check
+        run: |
+          echo "## License Compliance Check" > license-result.md
+          echo "" >> license-result.md
+          
+          # Load policy
+          POLICY_FILE=".github/license-policy.json"
+          if [ ! -f "$POLICY_FILE" ]; then
+            echo "⚠️ No license policy file found. Using defaults." >> license-result.md
+            DENIED='GPL-2.0,GPL-3.0,AGPL-1.0,AGPL-3.0,SSPL-1.0,EUPL-1.1,OSL-3.0'
+          else
+            DENIED=$(jq -r '.denied | join(",")' "$POLICY_FILE")
+          fi
+          
+          echo "### Policy" >> license-result.md
+          echo "**Denied licenses:** $DENIED" >> license-result.md
+          echo "" >> license-result.md
+          
+          # Check for denied licenses
+          VIOLATIONS=""
+          IFS=',' read -ra DENIED_ARRAY <<< "$DENIED"
+          for license in "${DENIED_ARRAY[@]}"; do
+            FOUND=$(jq -r "to_entries[] | select(.value.licenses | test(\"$license\"; \"i\")) | .key" license-report.json 2>/dev/null || true)
+            if [ -n "$FOUND" ]; then
+              VIOLATIONS="$VIOLATIONS\n- **$license**: $FOUND"
+            fi
+          done
+          
+          if [ -n "$VIOLATIONS" ]; then
+            echo "### ❌ License Violations Found" >> license-result.md
+            echo -e "$VIOLATIONS" >> license-result.md
+            echo "" >> license-result.md
+            echo "has_violations=true" >> $GITHUB_OUTPUT
+          else
+            echo "### ✅ All licenses comply with policy" >> license-result.md
+            echo "has_violations=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Add summary table
+          echo "" >> license-result.md
+          echo "### License Distribution" >> license-result.md
+          jq -r '[.[] | .licenses] | group_by(.) | map({license: .[0], count: length}) | sort_by(-.count) | .[] | "| \(.license) | \(.count) |"' license-report.json > /tmp/license-table.txt 2>/dev/null || true
+          echo "| License | Count |" >> license-result.md
+          echo "|---------|-------|" >> license-result.md
+          cat /tmp/license-table.txt >> license-result.md 2>/dev/null || echo "| Unable to parse | - |" >> license-result.md
+
+      - name: Upload license reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports
+          path: |
+            license-report.json
+            license-report.csv
+            license-summary.txt
+            license-result.md
+          retention-days: 30
+
+      - name: Comment PR with license results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = fs.readFileSync('license-result.md', 'utf8');
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '📜 ' + result
+            });
+
+      - name: Fail on license violations
+        if: steps.license-check.outputs.has_violations == 'true'
+        run: |
+          echo "::error::License violations detected. See report for details."
+          exit 1

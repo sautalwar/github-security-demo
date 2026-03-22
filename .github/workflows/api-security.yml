@@ -1,0 +1,179 @@
+# ============================================================
+# API Security Testing
+# GitLab equivalent: Built-in API Fuzzing / DAST API
+# ============================================================
+# VALUE: Automatically tests all API endpoints for security
+# vulnerabilities using the OpenAPI spec. Catches auth bypass,
+# injection, broken access control, and data exposure issues.
+
+name: "🔐 API Security Testing"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'docs/api-spec.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'docs/api-spec.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  api-security-test:
+    name: API Security Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 5
+          curl -f http://localhost:3000/health || exit 1
+        env:
+          JWT_SECRET: test-secret-for-ci
+          NODE_ENV: test
+
+      - name: Install testing tools
+        run: |
+          pip install schemathesis
+          npm install -g @stoplight/spectral-cli
+
+      - name: Validate OpenAPI spec
+        run: |
+          spectral lint docs/api-spec.yaml --ruleset .github/spectral.yaml -f json > spectral-results.json 2>&1 || true
+          spectral lint docs/api-spec.yaml --ruleset .github/spectral.yaml > spectral-results.txt 2>&1 || true
+
+      - name: Run Schemathesis API fuzzing
+        run: |
+          schemathesis run http://localhost:3000/api-docs \
+            --checks all \
+            --stateful=links \
+            --hypothesis-max-examples=50 \
+            --report > schemathesis-report.txt 2>&1 || true
+
+      - name: Run custom API security checks
+        run: |
+          echo "## API Security Test Results" > api-security-report.md
+          echo "" >> api-security-report.md
+          echo "**Tested:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> api-security-report.md
+          echo "" >> api-security-report.md
+          
+          # Test 1: Authentication bypass
+          echo "### Authentication Tests" >> api-security-report.md
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/data)
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "✅ Protected endpoints reject unauthenticated requests ($HTTP_CODE)" >> api-security-report.md
+          else
+            echo "❌ Protected endpoint returned $HTTP_CODE without auth (expected 401)" >> api-security-report.md
+          fi
+          
+          # Test 2: Register and get token
+          TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"username":"sectest","email":"sec@test.com","password":"TestP@ss123"}' | jq -r '.token')
+          
+          # Test 3: SQL injection attempt
+          echo "" >> api-security-report.md
+          echo "### Injection Tests" >> api-security-report.md
+          INJECTION_RESP=$(curl -s "http://localhost:3000/api/search?query='; DROP TABLE users;--" \
+            -H "Authorization: Bearer $TOKEN")
+          echo "SQL injection test response captured for analysis" >> api-security-report.md
+          
+          # Test 4: XSS attempt
+          XSS_RESP=$(curl -s "http://localhost:3000/api/search?query=<script>alert('xss')</script>" \
+            -H "Authorization: Bearer $TOKEN")
+          if echo "$XSS_RESP" | grep -q "<script>"; then
+            echo "⚠️ Potential XSS: Response contains unescaped script tags" >> api-security-report.md
+          else
+            echo "✅ XSS payload was sanitized or not reflected" >> api-security-report.md
+          fi
+          
+          # Test 5: Rate limiting
+          echo "" >> api-security-report.md
+          echo "### Rate Limiting Tests" >> api-security-report.md
+          RATE_LIMITED=false
+          for i in $(seq 1 110); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/data \
+              -H "Authorization: Bearer $TOKEN")
+            if [ "$CODE" = "429" ]; then
+              echo "✅ Rate limiting active after $i requests" >> api-security-report.md
+              RATE_LIMITED=true
+              break
+            fi
+          done
+          if [ "$RATE_LIMITED" = "false" ]; then
+            echo "⚠️ Rate limiting may not be configured (sent 110 requests without 429)" >> api-security-report.md
+          fi
+          
+          # Test 6: Security headers
+          echo "" >> api-security-report.md
+          echo "### Security Headers" >> api-security-report.md
+          HEADERS=$(curl -sI http://localhost:3000/health)
+          for header in "x-content-type-options" "x-frame-options" "strict-transport-security" "x-xss-protection"; do
+            if echo "$HEADERS" | grep -iq "$header"; then
+              echo "✅ $header present" >> api-security-report.md
+            else
+              echo "⚠️ $header missing" >> api-security-report.md
+            fi
+          done
+          
+          # Test 7: CORS policy
+          echo "" >> api-security-report.md
+          echo "### CORS Policy" >> api-security-report.md
+          CORS_RESP=$(curl -sI -H "Origin: http://evil.com" http://localhost:3000/api/data)
+          if echo "$CORS_RESP" | grep -iq "access-control-allow-origin: \*"; then
+            echo "⚠️ CORS allows all origins (wildcard)" >> api-security-report.md
+          else
+            echo "✅ CORS does not use wildcard origin" >> api-security-report.md
+          fi
+
+      - name: Upload API security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-security-reports
+          path: |
+            api-security-report.md
+            spectral-results.json
+            spectral-results.txt
+            schemathesis-report.txt
+          retention-days: 30
+
+      - name: Comment PR with API security results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '';
+            try {
+              body = fs.readFileSync('api-security-report.md', 'utf8');
+            } catch {
+              body = '## 🔐 API Security Testing\n\nScan completed. See artifacts for details.';
+            }
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🔐 ' + body
+            });

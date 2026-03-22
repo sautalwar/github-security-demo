@@ -1,0 +1,128 @@
+# ============================================================
+# Infrastructure as Code (IaC) Security Scanning with Checkov
+# GitLab equivalent: Built-in IaC Scanning analyzer (KICS)
+# ============================================================
+# VALUE: Catches cloud misconfigurations (open S3 buckets, exposed
+# databases, weak security groups) BEFORE they're deployed.
+
+name: "🏗️ IaC Security Scanning"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/iac-scan.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  checkov-scan:
+    name: Checkov IaC Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov IaC scanner
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif,json
+          output_file_path: console,checkov-results.sarif,checkov-results.json
+          soft_fail: true
+          download_external_modules: true
+
+      - name: Upload Checkov results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+          category: 'iac-scanning-checkov'
+        continue-on-error: true
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-scan-reports
+          path: |
+            checkov-results.sarif
+            checkov-results.json
+          retention-days: 30
+
+      - name: Parse and comment PR with IaC findings
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 🏗️ IaC Security Scan Results\n\n';
+            
+            try {
+              const results = JSON.parse(fs.readFileSync('checkov-results.json', 'utf8'));
+              const summary = results[0]?.summary || {};
+              const passed = summary.passed || 0;
+              const failed = summary.failed || 0;
+              const skipped = summary.skipped || 0;
+              
+              body += `| ✅ Passed | ❌ Failed | ⏭️ Skipped |\n`;
+              body += `|-----------|-----------|------------|\n`;
+              body += `| ${passed} | ${failed} | ${skipped} |\n\n`;
+              
+              if (failed > 0) {
+                body += '### Failed Checks\n\n';
+                const failedChecks = results[0]?.results?.failed_checks || [];
+                for (const check of failedChecks.slice(0, 10)) {
+                  body += `- **${check.check_id}**: ${check.check_result?.result} - ${check.check_type}\n`;
+                  body += `  📁 \`${check.file_path}:${check.file_line_range?.[0]}\`\n`;
+                  body += `  📋 ${check.guideline || 'No guideline available'}\n\n`;
+                }
+                if (failedChecks.length > 10) {
+                  body += `\n_...and ${failedChecks.length - 10} more. See artifacts for full report._\n`;
+                }
+              }
+            } catch (e) {
+              body += `Scan completed. See artifacts for details. (${e.message})`;
+            }
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+  tfsec-scan:
+    name: tfsec IaC Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform/
+          format: sarif
+          sarif_file: tfsec-results.sarif
+          soft_fail: true
+
+      - name: Upload tfsec results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec-results.sarif
+          category: 'iac-scanning-tfsec'
+        continue-on-error: true

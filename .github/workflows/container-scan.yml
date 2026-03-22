@@ -1,0 +1,126 @@
+# ============================================================
+# Container Security Scanning with Trivy
+# GitLab equivalent: Built-in Container Scanning analyzer
+# ============================================================
+# VALUE: Scans Docker images for OS and library vulnerabilities,
+# misconfigurations, and exposed secrets BEFORE deployment.
+
+name: "🐳 Container Security Scanning"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'package*.json'
+      - '.github/workflows/container-scan.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'package*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+env:
+  IMAGE_NAME: github-security-demo
+
+jobs:
+  build-and-scan:
+    name: Build & Scan Container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+          ignore-unfixed: true
+        continue-on-error: true
+
+      - name: Run Trivy for detailed table output
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          format: 'table'
+          output: 'trivy-table-report.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Run Trivy config scan (Dockerfile best practices)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          output: 'trivy-config-report.txt'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Run Trivy secret scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+          scan-type: 'image'
+          scanners: 'secret'
+          format: 'table'
+          output: 'trivy-secrets-report.txt'
+        continue-on-error: true
+
+      - name: Upload Trivy scan results to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+          category: 'container-scanning'
+
+      - name: Upload all scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-scan-reports
+          path: |
+            trivy-image-results.sarif
+            trivy-table-report.txt
+            trivy-config-report.txt
+            trivy-secrets-report.txt
+          retention-days: 30
+
+      - name: Comment PR with container scan summary
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 🐳 Container Security Scan Results\n\n';
+            
+            try {
+              const table = fs.readFileSync('trivy-table-report.txt', 'utf8');
+              body += '### Image Vulnerabilities\n```\n' + table.substring(0, 2000) + '\n```\n\n';
+            } catch { body += 'Image scan completed.\n\n'; }
+            
+            try {
+              const config = fs.readFileSync('trivy-config-report.txt', 'utf8');
+              body += '### Dockerfile Misconfigurations\n```\n' + config.substring(0, 1000) + '\n```\n\n';
+            } catch { body += 'Config scan completed.\n\n'; }
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

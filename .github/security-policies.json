@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "description": "Organization security policies for PR gates",
+  
+  "required_checks": [
+    "Checkov IaC Scan",
+    "Trivy",
+    "License Compliance",
+    "OPA Compliance"
+  ],
+
+  "vulnerability_thresholds": {
+    "critical": 0,
+    "high": 5,
+    "medium": 20,
+    "low": -1
+  },
+
+  "security_review_required_for": [
+    "Dockerfile",
+    "terraform/",
+    ".github/workflows/",
+    "src/auth",
+    "*.env*"
+  ],
+
+  "auto_assign_reviewers": {
+    "security_team": ["security-lead", "devsecops-engineer"],
+    "infra_team": ["platform-engineer"]
+  },
+
+  "notifications": {
+    "critical_findings": {
+      "slack_channel": "#security-alerts",
+      "email": "security@company.com"
+    }
+  },
+
+  "exemptions": {
+    "allow_skip_for": ["documentation-only", "test-only"],
+    "max_exemption_days": 30,
+    "require_justification": true
+  }
+}

@@ -1,0 +1,107 @@
+# Spectral OpenAPI Linting Rules — Security-Focused
+# Used by: .github/workflows/api-security.yml
+# Docs: https://docs.stoplight.io/docs/spectral/
+
+extends:
+  - "spectral:oas"
+
+rules:
+  # ── Core OAS Rules (severity overrides) ─────────────────────────
+  info-contact: warn
+  info-description: warn
+  oas3-api-servers: error
+  oas3-valid-media-example: warn
+  operation-operationId: warn
+  operation-description: warn
+  operation-tags: warn
+
+  # ── Security Rules ──────────────────────────────────────────────
+
+  # Every operation must declare a security scheme (or explicitly opt out)
+  operation-security-defined:
+    severity: warn
+    message: "Operation {{property}} should have a security requirement defined."
+
+  # The spec must define at least one global security scheme
+  oas3-security-schemes-defined:
+    description: "OpenAPI spec must define at least one security scheme."
+    severity: error
+    given: "$.components"
+    then:
+      field: "securitySchemes"
+      function: truthy
+
+  # Security schemes should use modern auth (Bearer / OAuth2 / OpenID Connect)
+  oas3-auth-scheme-type:
+    description: "Security schemes should use Bearer, OAuth2, or OpenID Connect."
+    severity: warn
+    given: "$.components.securitySchemes[*]"
+    then:
+      - field: "type"
+        function: enumeration
+        functionOptions:
+          values:
+            - http
+            - oauth2
+            - openIdConnect
+            - apiKey
+
+  # Bearer tokens must specify JWT format
+  oas3-bearer-format-jwt:
+    description: "Bearer authentication should specify JWT format."
+    severity: info
+    given: "$.components.securitySchemes[?(@.type == 'http' && @.scheme == 'bearer')]"
+    then:
+      field: "bearerFormat"
+      function: truthy
+
+  # ── Data Validation Rules ───────────────────────────────────────
+
+  # Request bodies should have required fields defined
+  oas3-request-body-required:
+    description: "Request bodies should specify which fields are required."
+    severity: warn
+    given: "$.paths.*.*.requestBody.content.*.schema"
+    then:
+      field: "required"
+      function: truthy
+
+  # Responses should not expose stack traces (no 5xx without description)
+  oas3-error-responses-documented:
+    description: "Operations should document error responses (4xx/5xx)."
+    severity: warn
+    given: "$.paths.*.*.responses"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: ["400"]
+            - required: ["401"]
+            - required: ["403"]
+            - required: ["404"]
+            - required: ["500"]
+
+  # ── Server & Transport Security ─────────────────────────────────
+
+  # Servers should use HTTPS
+  oas3-servers-https:
+    description: "Server URLs should use HTTPS."
+    severity: warn
+    given: "$.servers[*].url"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^https://"
+
+  # ── Naming & Consistency ────────────────────────────────────────
+
+  # Paths should be kebab-case
+  path-kebab-case:
+    description: "Path segments should be kebab-case."
+    severity: warn
+    given: "$.paths"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^(/[a-z0-9-{}]+)+$"
