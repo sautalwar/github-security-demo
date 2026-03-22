@@ -48,6 +48,14 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            if (context.eventName !== 'pull_request') {
+              console.log(`Event is '${context.eventName}', not a pull_request — skipping file change check.`);
+              core.setOutput('is_security_relevant', 'false');
+              core.setOutput('security_files', '[]');
+              core.setOutput('total_files', 0);
+              return;
+            }
+
             const { data: files } = await github.rest.pulls.listFiles({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -89,6 +97,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            if (context.eventName !== 'pull_request') {
+              console.log(`Event is '${context.eventName}', not a pull_request — skipping security scan wait.`);
+              return;
+            }
+
             const fs = require('fs');
             const policies = JSON.parse(fs.readFileSync('.github/security-policies.json', 'utf8'));
             const requiredChecks = policies.required_checks || [];
