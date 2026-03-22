@@ -71,6 +71,7 @@ jobs:
             --report > schemathesis-report.txt 2>&1 || true
 
       - name: Run custom API security checks
+        shell: bash {0}
         run: |
           echo "## API Security Test Results" > api-security-report.md
           echo "" >> api-security-report.md
